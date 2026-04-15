@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HangulLens – 한글 맞춤법 검사기</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg: #0f0e17; --surface: #1a1929; --surface2: #232235; --border: #2e2c4a;
+      --accent: #f76ad5;
+      --text: #e8e6f0; --text-muted: #8a87a8; --text-dim: #5a5779;
+      --err-grammar: #ff6b6b; --err-grammar-bg: rgba(255,107,107,0.22); --err-grammar-border: #ff6b6b;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', 'Pretendard', -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); min-height: 100vh;
+      display: flex; flex-direction: column;
+    }
+
+    body::before {
+      content: ''; position: fixed; inset: 0;
+      background: radial-gradient(ellipse 60% 40% at 15% 10%, rgba(247, 106, 212, 0.12) 0%, transparent 60%);
+      pointer-events: none; z-index: 0;
+    }
+
+    header {
+      position: relative; z-index: 10; padding: 18px 40px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 14px; backdrop-filter: blur(8px); background: rgba(15,14,23,0.6);
+    }
+
+    .logo-mark {
+      width: 38px; height: 38px; background: linear-gradient(135deg, var(--accent), #ff9ff3);
+      border-radius: 10px; display: flex; align-items: center; justify-content: center;
+      font-size: 18px; box-shadow: 0 0 18px rgba(247, 106, 212, 0.4);
+    }
+
+    .logo-text {
+      font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700;
+      background: linear-gradient(90deg, var(--text), var(--accent));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    main {
+      position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column;
+      align-items: center; padding: 30px 24px 40px; gap: 16px;
+    }
+
+    .editor-card {
+      width: 100%; max-width: 940px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 20px; overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+
+    .editor-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px; background: var(--surface2); border-bottom: 1px solid var(--border);
+    }
+
+    .char-counter { font-size: 13px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+
+    .editor-area { position: relative; min-height: 450px; }
+
+    #editor, #result-display {
+      width: 100%; min-height: 450px; padding: 26px; font-size: 16px; line-height: 1.8;
+      color: var(--text); background: transparent; outline: none;
+      white-space: pre-wrap; word-break: break-word; border: none;
+    }
+
+    #editor:empty::before { content: attr(placeholder); color: var(--text-dim); }
+    #result-display { display: none; }
+
+    .err {
+      border-bottom: 2px dashed var(--err-grammar); background: var(--err-grammar-bg);
+      cursor: pointer; transition: 0.2s; padding: 2px 0;
+    }
+    .err:hover { background: rgba(255,107,107,0.4); }
+
+    .tooltip-box {
+      position: fixed; z-index: 999; background: #1e1c35; border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px; min-width: 250px; max-width: 320px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5); opacity: 0; pointer-events: none;
+      transition: 0.2s; font-size: 14px; color: var(--text);
+    }
+    .tooltip-box.visible { opacity: 1; pointer-events: all; }
+
+    .tooltip-title { color: var(--err-grammar); font-weight: bold; margin-bottom: 8px; font-size: 12px; }
+    .tooltip-msg { margin-bottom: 12px; line-height: 1.5; color: #ccc; }
+    
+    .suggestion-container { display: flex; flex-wrap: wrap; gap: 6px; }
+    .suggestion-chip {
+      padding: 6px 12px; background: var(--accent); color: #0f0e17;
+      border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 13px;
+    }
+
+    .editor-bottom {
+      padding: 14px 20px; background: var(--surface2); border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .btn-check {
+      padding: 11px 32px; border-radius: 30px; font-size: 15px; font-weight: 600;
+      background: linear-gradient(135deg, var(--accent), #ff9ff3);
+      color: #0f0e17; border: none; cursor: pointer; transition: 0.2s;
+    }
+    .btn-check:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-clear {
+      padding: 11px 24px; border-radius: 30px; font-size: 15px;
+      color: var(--text-muted); background: transparent; border: 1px solid var(--border); cursor: pointer;
+    }
+
+    .spinner {
+      width: 16px; height: 16px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.7s linear infinite; display: none;
+    }
+    .spinner.active { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">ㄱ</div>
+  <div class="logo-text">HangulLens</div>
+</header>
+
+<main>
+  <div class="editor-card">
+    <div class="editor-toolbar">
+      <span class="char-counter" id="char-counter">0 글자</span>
+    </div>
+    <div class="editor-area">
+      <div id="editor" contenteditable="true" placeholder="검사할 한글 문장을 입력하세요..." spellcheck="false"></div>
+      <div id="result-display"></div>
+    </div>
+    <div class="editor-bottom">
+      <button class="btn-check" id="btn-check" onclick="checkSpelling()">✦ 맞춤법 검사</button>
+      <button class="btn-clear" onclick="clearAll()">초기화</button>
+      <div class="spinner" id="spinner"></div>
+      <span id="status-msg" style="font-size:13px; color:var(--text-muted)">준비 완료</span>
+    </div>
+  </div>
+</main>
+
+<div class="tooltip-box" id="tooltip"></div>
+
+<footer>Powered by Pusan National University & jhaemin/speller-api</footer>
+
+<script>
+  let currentMatches = [];
+  let originalText = "";
+
+  const editorEl = document.getElementById('editor');
+  const resultEl = document.getElementById('result-display');
+  const tooltip = document.getElementById('tooltip');
+  const spinner = document.getElementById('spinner');
+  const statusMsg = document.getElementById('status-msg');
+
+  editorEl.addEventListener('input', () => {
+    document.getElementById('char-counter').textContent = `${editorEl.innerText.length} 글자`;
+  });
+
+  async function checkSpelling() {
+    const text = editorEl.innerText.trim();
+    if (!text) return;
+
+    originalText = editorEl.innerText;
+    setLoading(true);
+
+    try {
+      // ⚠️ 중요: Vercel 주소를 그대로 사용하되 POST 요청을 보냅니다.
+      const response = await fetch('https://korea-speller-api-cfdn.vercel.app/check', {
+        method: 'POST',
+        mode: 'cors', // CORS 모드 명시
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: originalText })
+      });
+
+      if (!response.ok) throw new Error('API 호출 실패');
+      
+      const data = await response.json();
+      currentMatches = data;
+      
+      renderResults(originalText, currentMatches);
+      statusMsg.textContent = `검사 완료 (오류 ${currentMatches.length}개 발견)`;
+    } catch (e) {
+      console.error(e);
+      // CORS 에러 시 대응 메시지
+      statusMsg.textContent = "연결 오류: API 서버 설정을 확인해주세요.";
+      alert("CORS 보안 에러가 발생했습니다.\n\n해결책:\n1. API 서버(GitHub)에 'vercel.json' 파일을 추가했는지 확인하세요.\n2. 이 HTML 파일도 Vercel에 업로드하여 주소(https://)로 접속하세요.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function setLoading(on) {
+    spinner.classList.toggle('active', on);
+    document.getElementById('btn-check').disabled = on;
+    statusMsg.textContent = on ? '분석 중...' : '완료';
+  }
+
+  function renderResults(text, matches) {
+    let html = text;
+    // 뒤에서부터 글자를 교체해야 인덱스가 꼬이지 않음
+    const sorted = [...matches].sort((a, b) => b.token.offset - a.token.offset);
+
+    sorted.forEach((m) => {
+      const start = m.token.offset;
+      const end = start + m.token.length;
+      const before = html.substring(0, start);
+      const target = html.substring(start, end);
+      const after = html.substring(end);
+
+      const originalIdx = matches.indexOf(m);
+      html = `${before}<span class="err" onclick="showTooltip(event, ${originalIdx})">${target}</span>${after}`;
+    });
+
+    editorEl.style.display = 'none';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = html.replace(/\n/g, '<br>');
+  }
+
+  function showTooltip(e, idx) {
+    const m = currentMatches[idx];
+    const suggestions = m.suggestions;
+    
+    tooltip.innerHTML = `
+      <div class="tooltip-title">맞춤법 제안</div>
+      <div class="tooltip-msg">${m.info || "올바른 표현으로 수정해보세요."}</div>
+      <div class="suggestion-container">
+        ${suggestions.map(s => `
+          <button class="suggestion-chip" onclick="applyCorrection(${idx}, '${s.replace(/'/g, "\\'")}')">${s}</button>
+        `).join('')}
+      </div>
+    `;
+
+    const rect = e.target.getBoundingClientRect();
+    // 툴팁 위치 조정 (스크롤 위치 반영)
+    tooltip.style.left = `${rect.left + window.scrollX}px`;
+    tooltip.style.top = `${rect.bottom + window.scrollY + 10}px`;
+    tooltip.classList.add('visible');
+    
+    e.stopPropagation();
+  }
+
+  function applyCorrection(matchIdx, word) {
+    const m = currentMatches[matchIdx];
+    const start = m.token.offset;
+    const end = start + m.token.length;
+
+    originalText = originalText.substring(0, start) + word + originalText.substring(end);
+    
+    const diff = word.length - m.token.length;
+    currentMatches.forEach((other) => {
+      if (other.token.offset > m.token.offset) {
+        other.token.offset += diff;
+      }
+    });
+
+    currentMatches.splice(matchIdx, 1);
+    tooltip.classList.remove('visible');
+    renderResults(originalText, currentMatches);
+  }
+
+  function clearAll() {
+    editorEl.innerText = '';
+    editorEl.style.display = 'block';
+    resultEl.style.display = 'none';
+    resultEl.innerHTML = '';
+    statusMsg.textContent = '준비 완료';
+    tooltip.classList.remove('visible');
+    document.getElementById('char-counter').textContent = '0 글자';
+  }
+
+  document.addEventListener('click', (e) => {
+    if(!tooltip.contains(e.target)) tooltip.classList.remove('visible');
+  });
+</script>
+</body>
+</html>
